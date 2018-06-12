@@ -1,5 +1,6 @@
 source 'https://rubygems.org'
 
-gem 'netsuite', :git => 'https://github.com/guseng/netsuite'
+gem 'netsuite', :path => "/Users/gustavengstrom/dev/netsuite" #:git => 'https://github.com/guseng/netsuite'
+gem 'tty-prompt'
 
 

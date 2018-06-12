@@ -1,36 +1,40 @@
 require 'netsuite'
-
-def initialize()
+require 'yaml'
+require 'tty-prompt'
+def initNetsuite(config)
   NetSuite.configure do
     reset!
-    api_version	ENV['API_VERSION']  #'2017_2'
-    wsdl          "https://webservices.eu1.netsuite.com/wsdl/v#{api_version}_0/netsuite.wsdl"
+    api_version      config['api_version']
+    wsdl          "https://webservices.eu1.netsuite.com/wsdl/v#{config['api_version']}_0/netsuite.wsdl"
     wsdl_domain   "webservices.eu1.netsuite.com"
     read_timeout  100000
-    email    	ENV['EMAIL'] 
-    password 	ENV['PASSWORD'] 
-    account   ENV['ACCOUNT'] 
-    role      ENV['ROLE'] 
-
+    email     config['auth']['email']
+    password  config['auth']['password']
+    account   config['auth']['account']
+    role      config['auth']['role']
+    silent true
   end
 
   NetSuite::Configuration.soap_header = {
      'platformMsgs:ApplicationInfo' => {
-        'platformMsgs:applicationId' => ENV['APPLICATION_ID'] 
+       'platformMsgs:applicationId' =>  config['auth']['application_id']
      }
   }
 end
+
+skipFiles = ['async.min.js', 'lodash.js']
 
 
 def updateFile(id, path)
   data = File.read(path)
   enc  = Base64.encode64(data)
   file = NetSuite::Records::File.get(:internal_id => id)
-  file.update(content: enc)
+  res = file.update(content: enc)
+  return res
 end
 
 
-def searchForFile(name)
+def searchForFile(name, foldername)
   search = NetSuite::Records::File.search({
     basic: [
       {
@@ -41,18 +45,41 @@ def searchForFile(name)
     ]
   })
   if search.results.length > 0 then 
-    return search.results[0]
+    return search.results.select{|res| res.folder.name == foldername}.first
   else 
     return nil
   end
 end
+
+
+
 input = ARGV
-initialize()
-filename = input[0].match(/(?:\/.*)*(\d{3}.*)/).captures
-file = searchForFile(filename)
-if file.nil?
-  puts 'No file found'
-  abort
+
+config = YAML.load_file('config.yml')
+
+files = Dir[input[0]+"/FileCabinet/SuiteScripts/**/*.js"]
+
+
+prompt = TTY::Prompt.new
+allFiles = prompt.yes?('Deploy all files?')
+if not allFiles then 
+  files = prompt.multi_select("Select files?", files)
 end
-updateFile(file.internal_id, input[0])
+
+initNetsuite(config)
+files.each do |file|
+  filename = file.match(/(?:\/.*\/)*([a-z0-9\_.]*\.js)/).captures
+  foldername = file.match(/(SuiteScripts\/\w+)(?:\/)(?:[a-z0-9\_.]*\.js)/).captures
+  foldername = foldername[0].sub!("/", " : ")
+  puts 'Uploading ' <<  filename[0]
+  remoteFile = searchForFile(filename[0],foldername)
+  if remoteFile.nil?
+    puts 'No file found'
+    abort
+  end
+  res = updateFile(remoteFile.internal_id, file)
+  if res then
+    puts 'Successfully uploaded ' << filename[0]
+  end
+end
 
